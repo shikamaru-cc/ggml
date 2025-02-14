@@ -1,0 +1,5 @@
+set(TEST_TARGET makeless)
+add_executable(${TEST_TARGET} main.cpp)
+add_definitions("-Wall -g")
+target_include_directories(${TEST_TARGET} PRIVATE utfcpp/source)
+target_link_libraries(${TEST_TARGET} PRIVATE ggml common common-ggml)
