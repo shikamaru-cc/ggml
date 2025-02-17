@@ -5,73 +5,27 @@
 
 #include "utf8.h"
 
+#include <algorithm>
 #include <fstream>
 #include <vector>
 #include <set>
 #include <map>
-
-// TODO: use uft8char_t
-
-using char_utf8_t = std::string;
-
-struct encoder_t {
-    std::map<char_utf8_t, unsigned> stoi;
-    std::vector<char_utf8_t> itos;
-};
-
-static encoder_t encoder_load(const std::string & fname) {
-    encoder_t encoder;
-
-    auto fin = std::ifstream(fname);
-    if (!fin) {
-        fprintf(stderr, "failed to open token index file %s\n", fname.c_str());
-        return {};
-    }
-
-    encoder.stoi["."] = 0;
-    encoder.itos.emplace_back(".");
-
-    size_t index = 1;
-    std::string token;
-    while (std::getline(fin, token)) {
-        encoder.stoi[token] = index++;
-        encoder.itos.emplace_back(token);
-    }
-
-    return encoder;
-}
-
-std::vector<char_utf8_t> string_split_utf8(const std::string & str) {
-    std::vector<char_utf8_t> result;
-
-    const char * w_prev = str.c_str();
-    const char * w_curr = str.c_str();
-    while (*w_curr) {
-        utf8::advance(w_curr, 1, str.c_str() + str.size());
-        result.emplace_back(std::string(w_prev, w_curr-w_prev));
-        w_prev = w_curr;
-    }
-
-    return result;
-}
-
-std::string makeless_data_load(const std::string & fname) {
-    auto fin = std::ifstream(fname);
-    if (!fin) {
-        fprintf(stderr, "failed to open dataset file %s\n", fname.c_str());
-        return {};
-    }
-
-    std::string name, names;
-    while (std::getline(fin, name)) {
-        name.append(".");
-        names.append(std::move(name));
-    }
-
-    return names;
-}
+#include <memory>
 
 // Generate token index
+//
+// std::vector<char_utf8_t> string_split_utf8(const std::string & str) {
+//     std::vector<char_utf8_t> result;
+//     const char * w_prev = str.c_str();
+//     const char * w_curr = str.c_str();
+//     while (*w_curr) {
+//         utf8::advance(w_curr, 1, str.c_str() + str.size());
+//         result.emplace_back(std::string(w_prev, w_curr-w_prev));
+//         w_prev = w_curr;
+//     }
+
+//     return result;
+// }
 //
 // bool generate_token_index(const std::string & fname) {
 //     auto fin = std::ifstream(fname);
@@ -102,27 +56,69 @@ std::string makeless_data_load(const std::string & fname) {
 //     return true;
 // }
 
+
+struct encoder_t {
+    std::map<char32_t, unsigned> stoi;
+    std::vector<char32_t> itos;
+};
+
+
+std::unique_ptr<encoder_t> encoder_load(const std::string & fname) {
+    std::unique_ptr<encoder_t> encoder;
+
+    auto fin = std::ifstream(fname);
+    if (!fin) {
+        fprintf(stderr, "failed to open token index file %s\n", fname.c_str());
+        return {};
+    }
+
+    std::istreambuf_iterator<char> it = fin.rdbuf();
+    std::istreambuf_iterator<char> eos;
+
+    size_t index = 0;
+
+    while (it != eos) {
+        const auto ch = utf8::next(it, eos);
+        encoder->stoi[ch] = index++;
+        encoder->itos.emplace_back(ch);
+    }
+
+    return encoder;
+}
+
+
+std::u32string makeless_data_load(const std::string & fname) {
+    auto fin = std::ifstream(fname);
+    if (!fin) {
+        fprintf(stderr, "failed to open dataset file %s\n", fname.c_str());
+        return {};
+    }
+
+    std::istreambuf_iterator<char> it = fin.rdbuf();
+    std::istreambuf_iterator<char> eos;
+
+    std::u32string s;
+    utf8::utf8to32(it, eos, std::back_inserter(s));
+
+    return s;
+}
+
+
 int main(int argc, const char ** argv) {
     if (argc != 3) {
         fprintf(stderr, "Usage: %s examples/makeless/chinese-names-corpus.txt examples/makeless/token-index.txt\n", argv[0]);
         exit(0);
     }
 
-    auto encoder = encoder_load(argv[2]);
-
     auto names = makeless_data_load(argv[1]);
     GGML_ASSERT(!names.empty());
 
-    // std::vector<unsigned>   ctt_token;
-    // std::string             ctt_string;
+    auto encoder = encoder_load(argv[2]);
+    GGML_ASSERT(encoder);
 
-    // for (size_t i = 1000; i < 1020; ++i) {
-    //     const auto & name = names[i];
-    //     printf("%s --> ", name.c_str());
-    //     for (const auto & token : string_split_utf8(name)) {
-    //         printf("<%u> ", encoder.stoi[token]);
-    //     }
-    //     printf("\n");
-    // }
+    std::vector<unsigned> tokens;
+    std::transform(names.begin(), names.end(), std::back_inserter(tokens), [&](char32_t x){ return encoder->stoi[x]; });
+
+    return 0;
 }
 
