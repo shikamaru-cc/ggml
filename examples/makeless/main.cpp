@@ -64,7 +64,7 @@ struct encoder_t {
 
 
 std::unique_ptr<encoder_t> encoder_load(const std::string & fname) {
-    std::unique_ptr<encoder_t> encoder;
+    auto encoder = std::make_unique<encoder_t>();
 
     auto fin = std::ifstream(fname);
     if (!fin) {
@@ -94,14 +94,20 @@ std::u32string makeless_data_load(const std::string & fname) {
         return {};
     }
 
-    std::istreambuf_iterator<char> it = fin.rdbuf();
+    std::istreambuf_iterator<char> it(fin.rdbuf());
     std::istreambuf_iterator<char> eos;
 
     std::u32string s;
-    utf8::utf8to32(it, eos, std::back_inserter(s));
+    while (it != eos) {
+        s.push_back(utf8::next(it, eos));
+    }
 
     return s;
 }
+
+
+#define MAKELESS_BATCH_SIZE 1024
+#define MAKELESS_BLOCK_SIZE 3
 
 
 int main(int argc, const char ** argv) {
@@ -110,14 +116,29 @@ int main(int argc, const char ** argv) {
         exit(0);
     }
 
-    auto names = makeless_data_load(argv[1]);
-    GGML_ASSERT(!names.empty());
+    // auto names = makeless_data_load(argv[1]);
+    // GGML_ASSERT(!names.empty());
 
-    auto encoder = encoder_load(argv[2]);
-    GGML_ASSERT(encoder);
+    // auto encoder = encoder_load(argv[2]);
+    // GGML_ASSERT(encoder);
 
-    std::vector<unsigned> tokens;
-    std::transform(names.begin(), names.end(), std::back_inserter(tokens), [&](char32_t x){ return encoder->stoi[x]; });
+    // std::vector<unsigned> tokens;
+    // std::transform(names.begin(), names.end(), std::back_inserter(tokens), [&](char32_t x){ return encoder->stoi[x]; });
+
+    struct ggml_context * ctx;
+    struct ggml_init_params params {
+        /*.mem_size   =*/ 1 << 30,
+        /*.mem_buffer =*/ NULL,
+        /*.no_alloc   =*/ false,
+    };
+    ctx = ggml_init(params);
+
+    ggml_tensor * input = ggml_new_tensor_2d(ctx, GGML_TYPE_I32, MAKELESS_BLOCK_SIZE, MAKELESS_BATCH_SIZE);
+    ggml_tensor * index = ggml_view_1d(ctx, input, MAKELESS_BATCH_SIZE * MAKELESS_BLOCK_SIZE, 0);
+    ggml_tensor * C     = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 2, 2271);
+    ggml_tensor * emb   = ggml_get_rows(ctx, C, index);
+
+    printf("shape of emb ne0=%ld ne1=%ld ne2=%ld ne3=%ld\n", emb->ne[0], emb->ne[1], emb->ne[2], emb->ne[3]);
 
     return 0;
 }
